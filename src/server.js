@@ -1,20 +1,11 @@
-const express = require("express");
-const cors = require("cors");
-require("dotenv").config({ path: "./.env" })
+require('dotenv').config({ path: "./.env" })
+const app = require("./app.js"); 
 
-const app = express();
 
-app.use(cors({
-    origin: process.env.CORS_ORIGIN === '*' ? true : process.env.CORS_ORIGIN,
-    credentials: true
-}));
+const PORT = process.env.PORT || 8000;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static("public"));
+app.listen(PORT || 8000, () => {
+    console.log(`Server is running at port: ${PORT}`);
+});
 
-app.get("/", (req, res) => {
-    res.send("Pawan Tiwari");
-})
-
-module.exports = app;
+// db code coming in future
