@@ -1,7 +1,11 @@
-const asyncHandler = require("../utils/asyncHandler.js")
-const apiError = require("../utils/ApiError.js")
-const apiResponse = require("../utils/ApiResponse.js")
-const fs = require("fs")
+const asyncHandler = require("../utils/asyncHandler.js");
+const apiError = require("../utils/ApiError.js");
+const apiResponse = require("../utils/ApiResponse.js");
+const path = require("path");
+const fs = require("fs");
+const saveToCSV = require("../utils/convertToCsv.js");
+const {extractTextFromDOCX, extractTextFromPDF} = require("../utils/extractDataFromFile.js");
+const readCSV = require("../utils/readCsv.js")
 
 
 
@@ -21,18 +25,48 @@ const resetFolder = (folderPath) => {
 
 
 
-const applicantResumeUpload = asyncHandler( (req, res) => {
-    const resumePath = req.file?.path;
-   
-    if(!resumePath){
-        throw new apiError(400, "Resume file is missing")
-    }
+const applicantResumeUpload = asyncHandler( async (req, res) => {
+  const resumePath = req.file?.path;
+  
+  if(!resumePath){
+      throw new apiError(400, "Resume file is missing")
+  }
 
-    return res
-    .status(200)
-    .json(
-        new apiResponse(200, resumePath, "Resume file is stored")
-    )
+
+  let fileDataArray = [];
+
+  const filePath = resumePath;
+  const ext = path.extname(filePath).toLowerCase();
+  let extractedText = "";
+
+  try {
+    if (ext === ".pdf") {
+      extractedText = await extractTextFromPDF(filePath);
+    } else if (ext === ".docx") {
+      extractedText = await extractTextFromDOCX(filePath);
+    } else {
+      extractedText = fs.readFileSync(filePath, "utf8"); 
+    }
+  } catch (error) {
+    throw new apiError(400, "Please upload .docx or .pdf files")
+  }
+
+  fileDataArray.push({ filename: req.file.filename, content: extractedText });
+
+  const csvFilePath = await saveToCSV(fileDataArray);
+  if(!csvFilePath){
+    throw new apiError(400, "CSV file is missing")
+  }
+
+  const csvData = await readCSV(csvFilePath);
+  if(!csvData){
+    throw new apiError(400, "CSV data is missing")
+  }
+  return res
+  .status(200)
+  .json(
+      new apiResponse(200, csvData, "Resume file is stored")
+  )
     
 })
 
@@ -40,89 +74,117 @@ const applicantResumeUpload = asyncHandler( (req, res) => {
 
 
 const applicantResumeScore = asyncHandler( async (req, res) => {
-    const analysis = {
-        score: 75,
-        sections: [
-          {
-            title: "Format & Structure",
-            description: "Analysis of your resume's format and structure",
-            score: 80,
-            items: [
-              {
-                title: "File Format",
-                status: "success",
-                description: "Your resume is in an ATS-friendly format",
-              },
-              {
-                title: "Length",
-                status: "success",
-                description: "Resume length is appropriate (1-2 pages)",
-              },
-              {
-                title: "Sections",
-                status: "warning",
-                description: "Consider adding a Skills section",
-              },
-            ],
-          },
-          {
-            title: "Content Quality",
-            description: "Evaluation of your resume's content",
-            score: 70,
-            items: [
-              {
-                title: "Action Words",
-                status: "success",
-                description: "Good use of action verbs",
-              },
-              {
-                title: "Achievements",
-                status: "warning",
-                description: "Add more quantifiable achievements",
-              },
-              {
-                title: "Keywords",
-                status: "warning",
-                description: "Include more industry-specific keywords",
-              },
-            ],
-          },
-          {
-            title: "ATS Compatibility",
-            description: "How well your resume works with ATS systems",
-            score: 85,
-            items: [
-              {
-                title: "Parsing",
-                status: "success",
-                description: "Content is easily parsed by ATS systems",
-              },
-              {
-                title: "Formatting",
-                status: "success",
-                description: "No complex formatting that could confuse ATS",
-              },
-            ],
-          },
-        ],
+    
+  const analysis ={
+    totalScore: 0,
+    parseRate: 94,
+    sections: {
+      content: { score: 75, items: ["ATS Parse Rate", "Quantifying Impact", "Repetition", "Spelling & Grammar"] },
+      format: { score: 100, items: ["File Format", "Margins", "Font"] },
+      sections: { score: 67, items: ["Experience", "Education", "Skills"] },
+      skills: { score: 100, items: ["Technical Skills", "Soft Skills"] },
+      style: { score: 75, items: ["Active Voice", "Action Words"] },
+    }
+  }
+  await resetFolder("./public/temp");
+  await resetFolder("./public/uploads");
+
+  if(!analysis){
+      throw new apiError(500, "ATS Score is not Generated")
+  }
+
+  return res
+  .status(200)
+  .json(
+      new apiResponse(200, analysis, "Resume file is stored")
+  )
+
+
+})
+
+
+const recruterResumeUpload = asyncHandler( async (req, res) => {
+  const resumePaths = req.files.map(file => file.path);
+  if(!resumePaths){
+      throw new apiError(400, "Resume file is missing")
+  }
+
+
+  let fileDataArray = [];
+
+  for (const file of req.files) {
+    const filePath = file.path;
+    const ext = path.extname(filePath).toLowerCase();
+    let extractedText = "";
+
+    try {
+      if (ext === ".pdf") {
+        extractedText = await extractTextFromPDF(filePath);
+      } else if (ext === ".docx") {
+        extractedText = await extractTextFromDOCX(filePath);
+      } else {
+        extractedText = fs.readFileSync(filePath, "utf8"); 
+      }
+    } catch (error) {
+      throw new apiError(400, "Please upload .docx or .pdf files")
     }
 
-    await resetFolder("./public/temp");
+    fileDataArray.push({ filename: file.filename, content: extractedText });
+  }
 
-    if(!analysis){
-        throw new apiError(500, "ATS Score is not Generated")
+  const csvFilePath = await saveToCSV(fileDataArray);
+  if(!csvFilePath){
+    throw new apiError(400, "CSV file is missing")
+  }
+
+  const csvData = await readCSV(csvFilePath);
+  if(!csvData){
+    throw new apiError(400, "CSV data is missing")
+  }
+
+  return res
+  .status(200)
+  .json(
+      new apiResponse(200, csvData, "Resume files is stored")
+  )
+  
+})
+
+
+
+
+const recruterResumeScore = asyncHandler( async (req, res) => {
+  const analysis ={
+    totalScore: 0,
+    parseRate: 94,
+    sections: {
+      content: { score: 75, items: ["ATS Parse Rate", "Quantifying Impact", "Repetition", "Spelling & Grammar"] },
+      format: { score: 100, items: ["File Format", "Margins", "Font"] },
+      sections: { score: 67, items: ["Experience", "Education", "Skills"] },
+      skills: { score: 100, items: ["Technical Skills", "Soft Skills"] },
+      style: { score: 75, items: ["Active Voice", "Action Words"] },
     }
+  }
 
-    return res
-    .status(200)
-    .json(
-        new apiResponse(200, analysis, "Resume file is stored")
-    )
+  await resetFolder("./public/temp");
+  await resetFolder("./public/uploads");
+
+  if(!analysis){
+      throw new apiError(500, "ATS Score is not Generated")
+  }
+
+  return res
+  .status(200)
+  .json(
+      new apiResponse(200, analysis, "Resume file is stored")
+  )
 
 
 })
 
 module.exports = {
     applicantResumeUpload,
-    applicantResumeScore
+    applicantResumeScore,
+    recruterResumeUpload,
+    recruterResumeScore,
 }
